@@ -1,0 +1,17 @@
+# Entorno virtual
+.venv/
+
+# Configuración local
+.env
+
+# Archivos temporales y de caché
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Archivos del sistema
+.DS_Store
+
+# Logs
+logs/
