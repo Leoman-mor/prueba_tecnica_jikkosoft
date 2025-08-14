@@ -1,2 +1,1 @@
-# prueba_tecnica_jikkosoft
-prueba_tecnica_jikkosoft
+# Jikkosoft Data Engineer PoC
