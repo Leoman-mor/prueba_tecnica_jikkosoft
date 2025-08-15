@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 import pandas as pd
 from src.avro_utils import backup_avro, restore_avro
+from fastapi import Depends
+from src.security import api_key_guard
 
 # Carga de variables de entorno
 load_dotenv()
@@ -56,7 +58,7 @@ def normalize_datetime(s: str) -> str:
     return ts.strftime("%Y-%m-%d %H:%M:%S")
 
 # Solicitud de ingestión
-@app.post("/ingest")
+@app.post("/ingest", dependencies=[Depends(api_key_guard)])
 def ingest(payload: IngestRequest):
     table = payload.table
     cols = SCHEMAS[table]
@@ -149,14 +151,14 @@ def restore_table(table: Literal["departments","jobs","hired_employees"], path: 
             conn.execute(sql, rows[i:i+1000])
     return {"correcto": True, "restaurados": len(rows)}
 
-# Endpoint
-
-@app.post("/backup_avro/{table}")
+# Backup a tabla en formato AVRO
+@app.post("/backup_avro/{table}", dependencies=[Depends(api_key_guard)])
 def backup_table_avro(table: Literal["departments","jobs","hired_employees"]):
     path = backup_avro(table)
     return {"correcto": True, "path": path}
 
-@app.post("/restore_avro/{table}")
+# Restauración de backups
+@app.post("/restore_avro/{table}", dependencies=[Depends(api_key_guard)])
 def restore_table_avro(table: Literal["departments","jobs","hired_employees"], path: str):
     try:
         restored = restore_avro(table, path)
@@ -164,7 +166,8 @@ def restore_table_avro(table: Literal["departments","jobs","hired_employees"], p
     except FileNotFoundError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.get("/metrics/hired_by_quarter")
+# Métricas de contratación por trimestre
+@app.get("/metrics/hired_by_quarter", dependencies=[Depends(api_key_guard)])
 def hired_by_quarter(year: int = Query(..., ge=1900, le=2100)):
     sql = """
     SELECT d.name AS department,
@@ -184,7 +187,8 @@ def hired_by_quarter(year: int = Query(..., ge=1900, le=2100)):
         res = conn.execute(text(sql), {"year": year})
         return [dict(r._mapping) for r in res]
 
-@app.get("/metrics/top_departments")
+# Métricas de contratación por departamento
+@app.get("/metrics/top_departments", dependencies=[Depends(api_key_guard)])
 def top_departments(year: int = Query(..., ge=1900, le=2100)):
     sql = """
     WITH counts AS (

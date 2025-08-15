@@ -105,3 +105,7 @@ POST /backup_avro/{table} → genera backups/<table>_YYYYMMDDTHHMMSSZ.avro
 
 ## Restore AVRO: 
 POST /restore_avro/{table}?path=backups/archivo.avro
+
+## Seguridad
+Inclusión de contraseña para acceder al API (.env se encuentra cual es)
+Ajuste de compatibilidad para Python 3.9 (uso de `Optional[str]` en validación de API Key).
