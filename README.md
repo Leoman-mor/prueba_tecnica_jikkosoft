@@ -1,111 +1,202 @@
-# Prueba Técnica Jikkosoft – Data Engineer
+
+# Prueba Técnica – Jikkosoft (Data Engineer)
 
 Implementación de la prueba técnica usando **Python**, **FastAPI** y **PostgreSQL** (Neon en la nube).
 
-## Estructura del proyecto
+---
 
+## Estructura del Proyecto
+
+```bash
 prueba_tecnica_jikkosoft/
-├─ data/ # CSV originales
-├─ src/ # Código fuente
-├─ logs/ # Registro de filas rechazadas
-├─ backups/ # Archivos Parquet/Avro de respaldo
-├─ .env # Variables de entorno (no se suben a Git)
+├─ data/            # CSV originales
+├─ src/             # Código fuente
+├─ logs/            # Registro de filas rechazadas
+├─ backups/         # Archivos Parquet/Avro de respaldo
+├─ .env             # Variables de entorno (no se suben a Git)
 ├─ requirements.txt # Dependencias
-├─ schema.sql # Definición de tablas
+├─ schema.sql       # Definición de tablas
 └─ README.md
+```
 
-## Requisitos previos
+---
 
-- Python 3.10+  
-- Cuenta gratuita en [Neon.tech](https://neon.tech) con base PostgreSQL creada  
-- `psql` instalado para aplicar schema
+## Requisitos Previos
+
+- Python 3.10+
+- Cuenta gratuita en [Neon.tech](https://neon.tech) con base PostgreSQL creada
+- `psql` instalado para aplicar el esquema
 - Git
+- Docker (opcional, para despliegue con contenedores)
 
-## Instalación y configuración
+---
 
-1. Clonar repositorio:
-    ```bash
-    git clone <url-del-repo>
-    cd prueba_tecnica_jikkosoft
+## Instalación y Configuración
 
-2. Crear y activar entorno virtual:
-    python3 -m venv .venv
-    source .venv/bin/activate
+1. Clonar repositorio
+   ```bash
+   git clone <url-del-repo>
+   cd prueba_tecnica_jikkosoft
+   ```
 
-3. Instalar dependencias:
-    pip install -r requirements.txt
+2. Crear y activar entorno virtual
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
 
-4. Configurar .env con la cadena de conexión de Neon:
-    DATABASE_URL=postgresql://<user>:<pass>@<host>/<db>?sslmode=require&channel_binding=require
+3. Instalar dependencias
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-5. Crear tablas:
-    python src/apply_schema.py
+4. Configurar `.env`
+   ```env
+   DATABASE_URL=postgresql://<user>:<pass>@<host>/<db>?sslmode=require&channel_binding=require
+   API_KEY="Jikkosoft_#2025*"
+   ```
 
+5. Crear tablas
+   ```bash
+   python src/apply_schema.py
+   ```
 
-## Carga histórica de datos
-Inserta datos en lotes de máximo 1000 filas (requisito de la prueba).
-Valida tipos y campos obligatorios según el diccionario de datos:
-    departments.csv y jobs.csv → sin encabezado (campos: id, name)
-    hired_employees.csv → con encabezado (campos: id, name, datetime, department_id, job_id)
-Normaliza fechas en formato ISO con microsegundos → YYYY-MM-DD HH:MM:SS.
-Registra filas inválidas en logs/rejected.log con el motivo del rechazo.
-No se insertan registros inválidos.
+---
+
+## Carga Histórica de Datos
+
+- Límite: 1000 filas por lote.
+- Validaciones:
+  - `departments.csv` y `jobs.csv`: sin encabezado (`id`, `name`)
+  - `hired_employees.csv`: con encabezado (`id`, `name`, `datetime`, `department_id`, `job_id`)
+  - Fechas en formato ISO `YYYY-MM-DD HH:MM:SS`
+  - Campos obligatorios completos y tipos correctos
+- Rechazo de filas inválidas: se registran en `logs/rejected.log`
 
 Ejecución:
-    python src/load_historico.py
+```bash
+python src/load_historico.py
+```
 
-### Nota sobre la tasa de rechazo en hired_employees
-Durante la carga histórica, se presenta una tasa de rechazo considerable en hired_employees.
-Esto se debe al resultado de las validaciones estrictas aplicadas:
-    * Formato de fecha/hora inválido o no conforme al patrón YYYY-MM-DD HH:MM:SS.
-    * Campos numéricos (id, department_id, job_id) con valores no enteros o nulos.
-    * Campo name vacío o con solo espacios.
-Todas las filas rechazadas se registran en logs/rejected.log junto con el motivo específico, permitiendo su revisión y corrección antes de un reintento de carga.
+Notas sobre rechazos:
+- Formato de fecha inválido
+- Campos numéricos con valores no enteros o nulos
+- Campo `name` vacío
 
+---
 
 ## Uso de la API
-* La API está construida con FastAPI y permite:
-* Ingesta de datos en lotes de hasta 1000 registros.
-* Respaldo (backup) y restauración de tablas en formato Parquet.
-* Consultas analíticas de contrataciones.
 
-1. Arrancar el servidor
-    uvicorn src.main:app --reload
-    Por defecto, está en http://127.0.0.1:8000.
+La API está construida con FastAPI y permite:
 
-    Documentación para interactuar:
-        Swagger UI: http://127.0.0.1:8000/docs
-        Redoc: http://127.0.0.1:8000/redoc
+- Ingesta en lotes (máx. 1000 registros)
+- Backup y restauración en formato Parquet o Avro
+- Consultas analíticas
 
-2. Endpoints principales
-    POST /ingest
-    
-    Parámetros JSON:
-        table: "departments" | "jobs" | "hired_employees"
-        rows: Lista de registros (máximo 1000 por llamada)
+### 1. Arrancar servidor
+```bash
+uvicorn src.main:app --reload
+```
+Por defecto: http://127.0.0.1:8000
 
-### Backup
+Documentación:
+- Swagger UI: http://127.0.0.1:8000/docs
+- Redoc: http://127.0.0.1:8000/redoc
+
+---
+
+### 2. Endpoints Principales
+
+#### Ingesta de datos
+```bash
+POST /ingest
+```
+Body JSON:
+```json
+{
+  "table": "hired_employees",
+  "rows": [
+    {"id": 999999, "name": "Alice", "datetime": "2021-04-12T03:44:47.673375", "department_id": 1, "job_id": 1}
+  ]
+}
+```
+
+#### Backups
+Parquet:
+```bash
 POST /backup/{table}
-* Guarda la tabla como .parquet en la carpeta backups/.
-    curl -X POST http://127.0.0.1:8000/backup/hired_employees
-* Restore
-    POST /restore/{table}?path=backups/archivo.parquet
-* Restaura una tabla desde un archivo .parquet.
-    curl -X POST "http://127.0.0.1:8000/restore/hired_employees?path=backups/hired_employees_20250101T120000Z.parquet"
+```
+Avro:
+```bash
+POST /backup_avro/{table}
+```
 
-### Métricas
-* Contrataciones por trimestre
-    GET /metrics/hired_by_quarter?year=2021
-* Departamentos con contrataciones sobre el promedio
-GET /metrics/top_departments?year=2021
-
-
-## Backups AVRO: 
-POST /backup_avro/{table} → genera backups/<table>_YYYYMMDDTHHMMSSZ.avro
-
-## Restore AVRO: 
+#### Restauración
+Parquet:
+```bash
+POST /restore/{table}?path=backups/archivo.parquet
+```
+Avro:
+```bash
 POST /restore_avro/{table}?path=backups/archivo.avro
+```
+
+#### Métricas
+- Contrataciones por trimestre:
+  ```
+  GET /metrics/hired_by_quarter?year=2021
+  ```
+- Departamentos sobre promedio:
+  ```
+  GET /metrics/top_departments?year=2021
+  ```
+
+---
+
+## Ejecución con Docker
+
+1. Requisitos
+   - Docker Desktop en ejecución
+   - Archivo `.env` configurado
+
+2. Construir y levantar contenedor
+   ```bash
+   docker compose build
+   docker compose up -d
+   ```
+
+3. Ver logs / estado
+   ```bash
+   docker compose logs -f api
+   docker ps
+   ```
+
+4. Detener y limpiar
+   ```bash
+   docker compose down
+   docker compose down -v  # Elimina volúmenes
+   ```
+
+---
 
 ## Seguridad
-Inclusión de contraseña para acceder al API (.env se encuentra cual es)
-Ajuste de compatibilidad para Python 3.9 (uso de `Optional[str]` en validación de API Key).
+
+Todos los endpoints están protegidos con API Key vía header:
+```bash
+x-api-key: Jikkosoft_#2025*
+```
+En Swagger UI, usar el botón Authorize para agregar la API Key.
+
+---
+
+## Resumen de Comandos Clave
+
+| Acción                | Comando |
+|-----------------------|---------|
+| Crear tablas          | `python src/apply_schema.py` |
+| Cargar histórico      | `python src/load_historico.py` |
+| Arrancar API          | `uvicorn src.main:app --reload` |
+| Backup Parquet        | `POST /backup/{table}` |
+| Backup Avro           | `POST /backup_avro/{table}` |
+| Restore Parquet       | `POST /restore/{table}?path=...` |
+| Restore Avro          | `POST /restore_avro/{table}?path=...` |
