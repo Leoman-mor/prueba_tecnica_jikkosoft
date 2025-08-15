@@ -1,30 +1,73 @@
+# src/main.py
 from typing import List, Literal, Dict, Any
 import os, json, datetime as dt
-from fastapi import FastAPI, HTTPException, Query
+import pandas as pd
+from fastapi import FastAPI, HTTPException, Query, Depends
 from pydantic import BaseModel, Field, validator
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
-import pandas as pd
-from src.avro_utils import backup_avro, restore_avro
-from fastapi import Depends
-from src.security import api_key_guard
 
-# Carga de variables de entorno
+# SEGURIDAD
+try:
+    from src.security import api_key_guard
+except Exception:
+    # fallback si aún no está el guard
+    def api_key_guard():
+        return True
+
+# CARGA ENV Y CONEXIÓN
 load_dotenv()
-DATABASE_URL = os.getenv("DATABASE_URL")
+
+def _clean_db_url(url: str | None) -> str:
+    """
+    Asegura sslmode=require y desactiva channel_binding si está en 'require',
+    lo que a veces rompe en clientes no interactivos.
+    """
+    if not url:
+        raise RuntimeError("DATABASE_URL no está definido")
+    # normalizamos sslmode
+    if "sslmode=" not in url:
+        sep = "&" if "?" in url else "?"
+        url = f"{url}{sep}sslmode=require"
+    # evitamos channel_binding=require (opcional)
+    url = url.replace("channel_binding=require", "channel_binding=disable")
+    return url
+
+DATABASE_URL = _clean_db_url(os.getenv("DATABASE_URL"))
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
-# Diccionario de datos
+# DICCIONARIO
 SCHEMAS = {
     "departments": ["id", "name"],
     "jobs": ["id", "name"],
     "hired_employees": ["id", "name", "datetime", "department_id", "job_id"],
 }
 
+# APP
 app = FastAPI(title="Jikkosoft Reto Técnico, Data API")
 
-# Solicitud de ingestión
-# Ingesta de datos en la base de datos
+
+# SALUD / DIAGNÓSTICO
+
+@app.get("/health", include_in_schema=False)
+def health():
+    return {"ok": True}
+
+@app.get("/__dbcheck", include_in_schema=False)
+def dbcheck():
+    """Temporal: prueba conexión a DB desde el contenedor."""
+    try:
+        with engine.connect() as c:
+            depts = c.execute(text("select count(*) from public.departments")).scalar_one()
+            jobs  = c.execute(text("select count(*) from public.jobs")).scalar_one()
+            emps  = c.execute(text("select count(*) from public.hired_employees")).scalar_one()
+        return {"db_url": True, "counts": {"departments": depts, "jobs": jobs, "hired_employees": emps}}
+    except Exception as e:
+        return {"db_url": True, "error": str(e)}
+
+
+# MODELOS / UTILIDADES
+
 class IngestRequest(BaseModel):
     table: Literal["departments", "jobs", "hired_employees"]
     rows: List[Dict[str, Any]] = Field(..., min_items=1, max_items=1000)
@@ -39,7 +82,6 @@ class IngestRequest(BaseModel):
                 raise ValueError(f"Fila {i}: faltan campos {miss}")
         return v
 
-# Normalización de fechas
 def normalize_datetime(s: str) -> str:
     # acepta ISO con T/Z/microsegundos; devuelve 'YYYY-MM-DD HH:MM:SS'
     if not isinstance(s, str) or not s.strip():
@@ -50,26 +92,26 @@ def normalize_datetime(s: str) -> str:
             return dt.datetime.strptime(s, fmt).strftime("%Y-%m-%d %H:%M:%S")
         except ValueError:
             continue
-    # Intento final con pandas
-    # Pandas es más flexible con formatos
     ts = pd.to_datetime(s, errors="coerce")
     if pd.isna(ts):
         raise ValueError(f"datetime inválido: {s}")
     return ts.strftime("%Y-%m-%d %H:%M:%S")
 
-# Solicitud de ingestión
+def df_from_table(table: str) -> pd.DataFrame:
+    return pd.read_sql_query(f"SELECT * FROM {table}", engine)
+
+# ENDPOINTS
+
 @app.post("/ingest", dependencies=[Depends(api_key_guard)])
 def ingest(payload: IngestRequest):
     table = payload.table
     cols = SCHEMAS[table]
 
-    # Validaciones de tipos y normalización de datos
+    # Validaciones de tipos y normalización
     valid_rows, rejected = [], []
     for idx, row in enumerate(payload.rows, start=1):
         try:
-            data = {}
-            for c in cols:
-                data[c] = row[c]
+            data = {c: row[c] for c in cols}
             if table in ("departments", "jobs"):
                 data["id"] = int(data["id"])
                 if not str(data["name"]).strip():
@@ -86,7 +128,7 @@ def ingest(payload: IngestRequest):
         except Exception as e:
             rejected.append({"row": row, "error": str(e)})
 
-    # Chequeo básico de FKs para hired_employees
+    # FK check (hired_employees)
     if table == "hired_employees" and valid_rows:
         dept_ids = {r["department_id"] for r in valid_rows}
         job_ids  = {r["job_id"] for r in valid_rows}
@@ -118,10 +160,6 @@ def ingest(payload: IngestRequest):
 
     return {"Insertados": len(valid_rows), "Rechazados": len(rejected)}
 
-# Backup y restauración
-def df_from_table(table: str) -> pd.DataFrame:
-    return pd.read_sql_query(f"SELECT * FROM {table}", engine)
-
 @app.post("/backup/{table}")
 def backup_table(table: Literal["departments","jobs","hired_employees"]):
     os.makedirs("backups", exist_ok=True)
@@ -133,40 +171,38 @@ def backup_table(table: Literal["departments","jobs","hired_employees"]):
     df.to_parquet(path, index=False)
     return {"ok": True, "path": path}
 
-# Restauración de backups
 @app.post("/restore/{table}")
 def restore_table(table: Literal["departments","jobs","hired_employees"], path: str):
     if not os.path.exists(path):
         raise HTTPException(status_code=400, detail="archivo no existe")
     df = pd.read_parquet(path)
-    # Inserción simple con ON CONFLICT DO NOTHING
     cols = SCHEMAS[table]
     placeholders = ", ".join([f":{c}" for c in cols])
     collist = ", ".join(cols)
     sql = text(f"INSERT INTO {table} ({collist}) VALUES ({placeholders}) ON CONFLICT (id) DO NOTHING")
     rows = df[cols].to_dict(orient="records")
     with engine.begin() as conn:
-        # sublotes de 1000
         for i in range(0, len(rows), 1000):
             conn.execute(sql, rows[i:i+1000])
     return {"correcto": True, "restaurados": len(rows)}
 
-# Backup a tabla en formato AVRO
+# AVRO (si usas estos utilitarios en src/avro_utils.py)
 @app.post("/backup_avro/{table}", dependencies=[Depends(api_key_guard)])
 def backup_table_avro(table: Literal["departments","jobs","hired_employees"]):
+    from src.avro_utils import backup_avro
     path = backup_avro(table)
     return {"correcto": True, "path": path}
 
-# Restauración de backups
 @app.post("/restore_avro/{table}", dependencies=[Depends(api_key_guard)])
 def restore_table_avro(table: Literal["departments","jobs","hired_employees"], path: str):
+    from src.avro_utils import restore_avro
     try:
         restored = restore_avro(table, path)
         return {"correcto": True, "restaurados": restored}
     except FileNotFoundError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# Métricas de contratación por trimestre
+# Métricas
 @app.get("/metrics/hired_by_quarter", dependencies=[Depends(api_key_guard)])
 def hired_by_quarter(year: int = Query(..., ge=1900, le=2100)):
     sql = """
@@ -187,7 +223,6 @@ def hired_by_quarter(year: int = Query(..., ge=1900, le=2100)):
         res = conn.execute(text(sql), {"year": year})
         return [dict(r._mapping) for r in res]
 
-# Métricas de contratación por departamento
 @app.get("/metrics/top_departments", dependencies=[Depends(api_key_guard)])
 def top_departments(year: int = Query(..., ge=1900, le=2100)):
     sql = """

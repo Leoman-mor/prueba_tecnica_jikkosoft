@@ -1,0 +1,14 @@
+SELECT
+  he.id,
+  he.name                                 AS employee_name,
+  he.datetime,
+  he.department_id,
+  d.name                                  AS department_name,
+  he.job_id,
+  j.name                                  AS job_name,
+  EXTRACT(YEAR    FROM he.datetime)::int  AS year,
+  EXTRACT(QUARTER FROM he.datetime)::int  AS quarter
+FROM public.hired_employees he
+LEFT JOIN public.departments d ON d.id = he.department_id
+LEFT JOIN public.jobs        j ON j.id = he.job_id
+ORDER BY he.id;
