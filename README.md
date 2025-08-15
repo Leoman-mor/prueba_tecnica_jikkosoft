@@ -63,5 +63,45 @@ Esto se debe al resultado de las validaciones estrictas aplicadas:
 Todas las filas rechazadas se registran en logs/rejected.log junto con el motivo específico, permitiendo su revisión y corrección antes de un reintento de carga.
 
 
+## Uso de la API
+* La API está construida con FastAPI y permite:
+* Ingesta de datos en lotes de hasta 1000 registros.
+* Respaldo (backup) y restauración de tablas en formato Parquet.
+* Consultas analíticas de contrataciones.
+
+1. Arrancar el servidor
+    uvicorn src.main:app --reload
+    Por defecto, está en http://127.0.0.1:8000.
+
+    Documentación para interactuar:
+        Swagger UI: http://127.0.0.1:8000/docs
+        Redoc: http://127.0.0.1:8000/redoc
+
+2. Endpoints principales
+    POST /ingest
+    
+    Parámetros JSON:
+        table: "departments" | "jobs" | "hired_employees"
+        rows: Lista de registros (máximo 1000 por llamada)
+
+### Backup
+POST /backup/{table}
+* Guarda la tabla como .parquet en la carpeta backups/.
+    curl -X POST http://127.0.0.1:8000/backup/hired_employees
+* Restore
+    POST /restore/{table}?path=backups/archivo.parquet
+* Restaura una tabla desde un archivo .parquet.
+    curl -X POST "http://127.0.0.1:8000/restore/hired_employees?path=backups/hired_employees_20250101T120000Z.parquet"
+
+### Métricas
+* Contrataciones por trimestre
+    GET /metrics/hired_by_quarter?year=2021
+* Departamentos con contrataciones sobre el promedio
+GET /metrics/top_departments?year=2021
 
 
+## Backups AVRO: 
+POST /backup_avro/{table} → genera backups/<table>_YYYYMMDDTHHMMSSZ.avro
+
+## Restore AVRO: 
+POST /restore_avro/{table}?path=backups/archivo.avro

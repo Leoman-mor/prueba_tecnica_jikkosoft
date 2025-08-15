@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, validator
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 import pandas as pd
+from src.avro_utils import backup_avro, restore_avro
 
 # Carga de variables de entorno
 load_dotenv()
@@ -149,7 +150,20 @@ def restore_table(table: Literal["departments","jobs","hired_employees"], path: 
     return {"correcto": True, "restaurados": len(rows)}
 
 # Endpoint
-# Empleados contratados por trimestre
+
+@app.post("/backup_avro/{table}")
+def backup_table_avro(table: Literal["departments","jobs","hired_employees"]):
+    path = backup_avro(table)
+    return {"correcto": True, "path": path}
+
+@app.post("/restore_avro/{table}")
+def restore_table_avro(table: Literal["departments","jobs","hired_employees"], path: str):
+    try:
+        restored = restore_avro(table, path)
+        return {"correcto": True, "restaurados": restored}
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 @app.get("/metrics/hired_by_quarter")
 def hired_by_quarter(year: int = Query(..., ge=1900, le=2100)):
     sql = """
