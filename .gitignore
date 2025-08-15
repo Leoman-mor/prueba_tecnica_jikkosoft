@@ -1,6 +1,9 @@
 # Entorno virtual
 .venv/
 
+# Data completa excluida
+data/
+
 # Configuración local
 .env
 
