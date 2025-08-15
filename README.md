@@ -1,5 +1,5 @@
-
 # Prueba Técnica – Jikkosoft (Data Engineer)
+# Fase 1 - Migración masiva
 
 Implementación de la prueba técnica usando **Python**, **FastAPI** y **PostgreSQL** (Neon en la nube).
 
@@ -200,3 +200,18 @@ En Swagger UI, usar el botón Authorize para agregar la API Key.
 | Backup Avro           | `POST /backup_avro/{table}` |
 | Restore Parquet       | `POST /restore/{table}?path=...` |
 | Restore Avro          | `POST /restore_avro/{table}?path=...` |
+
+
+# Fase 2 – Visualización en Looker Studio
+
+En esta fase se conecta la base de datos de PostgreSQL (Neon) a Looker Studio para crear un dashboard interactivo con los datos cargados.
+
+## Conexión a PostgreSQL desde Looker Studio
+
+En Looker Studio, con las credenciales de acceso a la base de datos, se llamaron los datos desde un conector PostgreSQL. 
+Se usó una la certificación del servidor 'isrgrootx1.pem' como SSL 
+Se usó la visual que está en script_view_looker.txt
+
+## Construcción del dashboard
+
+Se usaron las indicaciones que los stakeholders requieren para construir el tablero. 
